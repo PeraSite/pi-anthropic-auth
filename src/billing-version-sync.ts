@@ -105,10 +105,13 @@ export function createBillingVersionSync(
     const target = targetVersion(readUserAgent(input, init));
     const upgraded =
       target === pinned ? undefined : rebuildBody(init?.body, pinned, target);
-    const sentInit =
-      upgraded === undefined ? init : { ...init, body: upgraded };
     // When the upgrade could not be verified, the body still carries the pin.
     const sentVersion = upgraded === undefined ? pinned : target;
+    const sentInit = withClaudeCliVersion(
+      input,
+      upgraded === undefined ? init : { ...init, body: upgraded },
+      sentVersion,
+    );
 
     const response = await dispatch(input, sentInit);
     const rejection = await readVersionRejection(response);
@@ -124,7 +127,14 @@ export function createBillingVersionSync(
       requiredVersion: recovery.requiredVersion,
     });
     await response.body?.cancel();
-    const retried = await dispatch(input, { ...sentInit, body: recovery.body });
+    const retried = await dispatch(
+      input,
+      withClaudeCliVersion(
+        input,
+        { ...sentInit, body: recovery.body },
+        recovery.requiredVersion,
+      ),
+    );
     const retryRejection = await readVersionRejection(retried);
     if (!retryRejection) return retried;
 
@@ -237,6 +247,29 @@ async function hintedResponse(
     statusText: response.statusText,
     headers,
   });
+}
+
+/**
+ * Rewrites pi-ai's hardcoded `claude-cli/<version>` user-agent to `version`.
+ *
+ * Anthropic gates new models on the user-agent version as well as the billing
+ * header, so a stale pi-ai constant is rejected even when the pin is current.
+ */
+function withClaudeCliVersion(
+  input: Parameters<FetchFunction>[0],
+  init: RequestInit | undefined,
+  version: string,
+): RequestInit | undefined {
+  const userAgent = readUserAgent(input, init);
+  if (!userAgent || readClaudeCliVersion(userAgent) === undefined) return init;
+  const headers = new Headers(
+    init?.headers ?? (input instanceof Request ? input.headers : undefined),
+  );
+  headers.set(
+    "user-agent",
+    userAgent.replace(/claude-cli\/\d+\.\d+\.\d+/, `claude-cli/${version}`),
+  );
+  return { ...init, headers };
 }
 
 /** Reads the `user-agent` header off whichever argument carries it. */

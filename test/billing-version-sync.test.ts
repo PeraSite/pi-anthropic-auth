@@ -609,3 +609,33 @@ describe("hints on unrecovered claude_code_version_too_old rejections", () => {
     });
   });
 });
+
+describe("claude-cli user-agent", () => {
+  test("is rewritten to the version sent in the billing header", async () => {
+    const base = createCapturingFetch();
+    const sync = createBillingVersionSync(
+      createLearnedClaudeCodeFloor(),
+      base.fetch,
+    );
+    sync.recordRequest(shapedPayload());
+    await sync.fetch(
+      "https://api.anthropic.com/v1/messages",
+      requestInit(`claude-cli/${PI_BEHIND}`),
+    );
+    const headers = new Headers(base.calls[0]?.init?.headers);
+    assert.equal(headers.get("user-agent"), `claude-cli/${CLAUDE_CODE_VERSION}`);
+    assert.equal(headers.get("content-type"), "application/json");
+  });
+
+  test("leaves a request without a claude-cli user-agent untouched", async () => {
+    const base = createCapturingFetch();
+    const sync = createBillingVersionSync(
+      createLearnedClaudeCodeFloor(),
+      base.fetch,
+    );
+    sync.recordRequest(shapedPayload());
+    const init = requestInit(undefined);
+    await sync.fetch("https://api.anthropic.com/v1/messages", init);
+    assert.equal(base.calls[0]?.init?.headers, init.headers);
+  });
+});
